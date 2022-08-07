@@ -3,14 +3,11 @@ package top.liumian.zipkin.util;
 import brave.Span;
 import brave.Tracer;
 import brave.Tracing;
-import brave.propagation.Propagation;
 import brave.propagation.TraceContext;
 import brave.propagation.TraceContextOrSamplingFlags;
-import top.liumian.zipkin.core.mq.producer.SendMessageFunction;
 
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Properties;
 import java.util.function.Consumer;
 import java.util.function.Function;
 
@@ -148,6 +145,29 @@ public class TraceUtil {
         } catch (Exception e) {
             span.error(e);
             throw e;
+        } finally {
+            span.finish();
+        }
+    }
+
+    /**
+     * 将当前链路上下文注入到properties中
+     *
+     * @param tracing   tracing
+     * @param traceName 链路名称
+     * @param function  自定义业务逻辑
+     * @param <R>       返回类型
+     * @return 自定义业务逻辑返回结果
+     */
+    public static <R> R injectTraceInfo(Tracing tracing, String traceName, TracingFunction<Map<String, String>, R> function) throws Throwable {
+        Tracer tracer = tracing.tracer();
+        Span span = tracer.nextSpan().name(traceName).start();
+        TraceContext.Injector<Map<String, String>> injector = tracing.propagation().injector(Map::put);
+        Map<String, String> traceInfo = new HashMap<>();
+        injector.inject(span.context(), traceInfo);
+        span.kind(Span.Kind.PRODUCER);
+        try (Tracer.SpanInScope ws = tracer.withSpanInScope(span)) {
+            return function.apply(traceInfo);
         } finally {
             span.finish();
         }
